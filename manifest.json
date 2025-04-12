@@ -1,0 +1,46 @@
+{
+    "manifest_version": 3,
+    "name": "No Shorts - YouTube Shorts Blocker",
+    "version": "1.2",
+    "description": "Block YouTube Shorts from feeds, search results, and homepage with a dark glassmorphism UI toggle",
+    "permissions": [
+        "activeTab",
+        "storage"
+    ],
+    "action": {
+        "default_popup": "popup.html",
+        "default_icon": {
+            "16": "icons/icon16.png",
+            "48": "icons/icon48.png",
+            "128": "icons/icon128.png"
+        }
+    },
+    "background": {
+        "scripts": ["background.js"]
+    },
+    "content_scripts": [
+        {
+            "matches": [
+                "*://*.youtube.com/*",
+                "*://*.m.youtube.com/*"
+            ],
+            "js": [
+                "content.js"
+            ],
+            "css": [
+                "styles.css"
+            ],
+            "run_at": "document_end"
+        }
+    ],
+    "icons": {
+        "16": "icons/icon16.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png"
+    },
+    "browser_specific_settings": {
+        "gecko": {
+            "id": "{c86cab09-17b8-41e4-a58e-d8d1e17c8242}"
+        }
+    }
+}

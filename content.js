@@ -15,15 +15,17 @@ function detectEnvironment() {
     // Check for Android
     isAndroid = navigator.userAgent.includes('Android');
 
-    // Check if mobile YouTube
+    // Check if mobile YouTube - be more aggressive for Android detection
     isMobileYouTube = window.location.hostname.includes('m.youtube.com') ||
-        (window.location.hostname.includes('youtube.com') && (
-            window.innerWidth <= 600 ||
-            isAndroid ||
-            navigator.userAgent.includes('Mobi')
-        ));
+        isAndroid ||
+        navigator.userAgent.includes('Mobile') ||
+        navigator.userAgent.includes('Mobi') ||
+        window.innerWidth <= 768;
 
     console.log(`Environment detected: Firefox=${isFirefox}, Android=${isAndroid}, Mobile YouTube=${isMobileYouTube}`);
+    console.log(`User Agent: ${navigator.userAgent}`);
+    console.log(`Window width: ${window.innerWidth}`);
+    console.log(`Hostname: ${window.location.hostname}`);
 }
 
 // Run detection
@@ -188,181 +190,353 @@ setTimeout(() => {
     }
 }, 1000);
 
-// Enhanced function to hide shorts with optimizations for mobile
+// Enhanced function to hide shorts with better precision
 function hideShorts() {
     if (!document.body) return;
 
-    // Choose selectors based on desktop or mobile YouTube
-    const selectors = getSelectors();
-
-    // Process sections first (they contain multiple shorts)
     try {
-        const shortsSections = document.querySelectorAll(selectors.shortsSection);
-        shortsSections.forEach(section => {
-            section.style.display = 'none';
-        });
-    } catch (e) {
-        console.error('Error hiding shorts sections:', e);
-    }
+        // Log for debugging on mobile
+        if (isAndroid) {
+            console.log('Hiding Shorts - Mobile mode active');
+        }
 
-    // Process individual items
-    try {
-        const videoItems = document.querySelectorAll(selectors.videoItems);
-        videoItems.forEach(item => {
-            if (isShortsElement(item)) {
-                item.style.display = 'none';
-            }
-        });
-    } catch (e) {
-        console.error('Error hiding video items:', e);
-    }
+        // Hide dedicated Shorts sections first (these are safe to hide entirely)
+        hideShortsSections();
 
-    // Hide navigation elements
-    try {
-        const navItems = document.querySelectorAll(selectors.navMenu);
-        navItems.forEach(item => {
-            const parentItem = isMobileYouTube ? item : item.closest('ytd-guide-entry-renderer');
-            if (parentItem) {
-                parentItem.style.display = 'none';
-            }
-        });
-    } catch (e) {
-        console.error('Error hiding nav menu:', e);
-    }
+        // Hide individual Shorts items more carefully
+        hideShortsItems();
 
-    // Handle shorts filter chips in search
-    try {
+        // Hide Shorts navigation
+        hideShortsNavigation();
+
+        // Hide Shorts filter chips
         hideShortFilterChips();
-    } catch (e) {
-        console.error('Error hiding filter chips:', e);
-    }
 
-    // Redirect from /shorts/ URLs to normal video
-    try {
+        // Handle Shorts URL redirects
         redirectShortsUrls();
+
+        // Use improved mobile approach instead of brute force
+        if (isAndroid && isFirefox) {
+            hideMobileShortsImproved();
+        }
     } catch (e) {
-        console.error('Error redirecting shorts URL:', e);
+        console.error('Error in hideShorts:', e);
     }
 }
 
-// Get appropriate selectors for current YouTube view
-function getSelectors() {
-    // Use cached selectors if available
-    const cacheKey = isMobileYouTube ? 'mobile' : 'desktop';
-    if (selectorCache[cacheKey]) {
-        return selectorCache[cacheKey];
+// Improved method for mobile Firefox Android - more targeted approach
+function hideMobileShortsImproved() {
+    // Only target elements that we can confirm are Shorts
+    const confirmedShortsSelectors = [
+        'ytm-reel-shelf-renderer',
+        'ytm-reel-item-renderer',
+        '[data-content-type="shorts"]'
+    ];
+
+    confirmedShortsSelectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(element => {
+            element.style.display = 'none';
+            console.log('Hidden confirmed Shorts element:', selector);
+        });
+    });
+
+    // Find links specifically going to /shorts/ and hide only their immediate containers
+    document.querySelectorAll('a[href*="/shorts/"]').forEach(link => {
+        // Don't hide search result containers or general video containers
+        if (isInSearchResults(link) || isInGeneralVideoList(link)) {
+            return;
+        }
+
+        let current = link;
+        let attempts = 0;
+
+        // Walk up the DOM tree to find a suitable container to hide
+        while (current && current !== document.body && attempts < 5) { // Reduced attempts
+            attempts++;
+
+            // Only hide if it's specifically a Shorts container
+            if (current.tagName && (
+                current.tagName.includes('REEL') ||
+                current.classList.contains('reel-item') ||
+                current.hasAttribute('data-shorts') ||
+                (current.tagName.includes('YTM-') && isShortsSpecificContainer(current))
+            )) {
+                current.style.display = 'none';
+                console.log('Hidden Shorts container:', current.tagName, current.className);
+                break;
+            }
+
+            current = current.parentElement;
+        }
+    });
+}
+
+// Check if element is in search results
+function isInSearchResults(element) {
+    const searchContainer = element.closest('ytm-search-results, #search-results, .search-results');
+    return !!searchContainer;
+}
+
+// Check if element is in a general video list (not Shorts-specific)
+function isInGeneralVideoList(element) {
+    const generalVideoContainers = [
+        'ytm-section-list-renderer',
+        'ytm-item-section-renderer',
+        'ytm-video-with-context-renderer'
+    ];
+
+    for (let containerSelector of generalVideoContainers) {
+        const container = element.closest(containerSelector);
+        if (container) {
+            // Check if this container is specifically for Shorts
+            const containerText = container.textContent || '';
+            const hasReelElements = container.querySelector('ytm-reel-shelf-renderer, ytm-reel-item-renderer');
+
+            // If it doesn't have Shorts-specific elements or text, it's probably general content
+            if (!hasReelElements && !containerText.toLowerCase().includes('shorts')) {
+                return true;
+            }
+        }
     }
+    return false;
+}
 
-    let selectors;
+// Check if container is specifically for Shorts content
+function isShortsSpecificContainer(element) {
+    const tagName = element.tagName.toLowerCase();
+    const className = element.className.toLowerCase();
+    const textContent = (element.textContent || '').toLowerCase();
 
+    // Check for Shorts-specific indicators
+    return (
+        tagName.includes('reel') ||
+        className.includes('reel') ||
+        className.includes('shorts') ||
+        element.hasAttribute('data-shorts') ||
+        element.hasAttribute('data-content-type') && element.getAttribute('data-content-type') === 'shorts' ||
+        textContent.includes('shorts') && element.children.length < 5 // Small containers with "shorts" text
+    );
+}
+
+// Hide dedicated Shorts sections (safe to hide entirely)
+function hideShortsSections() {
+    const shortsSectionSelectors = isMobileYouTube ? [
+        'ytm-reel-shelf-renderer',
+        'ytm-rich-section-renderer[data-content-type="shorts"]',
+        '.rich-shelf-renderer'
+    ] : [
+        'ytd-reel-shelf-renderer',
+        'ytd-shorts-shelf-renderer',
+        'ytd-rich-section-renderer[is-shorts]'
+    ];
+
+    shortsSectionSelectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(section => {
+            // For mobile, double-check if section contains Shorts content
+            if (isMobileYouTube) {
+                const hasShorts = section.querySelector('a[href*="/shorts/"]') ||
+                    section.querySelector('ytm-reel-item-renderer') ||
+                    section.hasAttribute('data-content-type') && section.getAttribute('data-content-type') === 'shorts';
+
+                if (hasShorts || selector.includes('reel')) {
+                    section.style.display = 'none';
+                    console.log('Hidden Shorts section:', selector);
+                }
+            } else {
+                section.style.display = 'none';
+            }
+        });
+    });
+}
+
+// Hide individual Shorts items with careful detection
+function hideShortsItems() {
     if (isMobileYouTube) {
-        selectors = {
-            videoItems: [
-                'ytm-video-with-context-renderer',
-                'ytm-compact-video-renderer',
-                'ytm-item-section-renderer',
-                'ytm-shelf-renderer',
-                'ytm-reel-item-renderer',
-                'ytm-slim-video-metadata-renderer'
-            ].join(', '),
+        // Mobile YouTube selectors - be more selective
+        const mobileSelectors = [
+            'ytm-reel-item-renderer'
+        ];
 
-            shortsSection: [
-                'ytm-reel-shelf-renderer',
-                'ytm-rich-section-renderer'
-            ].join(', '),
+        mobileSelectors.forEach(selector => {
+            document.querySelectorAll(selector).forEach(item => {
+                item.style.display = 'none';
+                console.log('Hidden mobile Shorts item:', item.tagName);
+            });
+        });
 
-            navMenu: [
-                '.pivot-shorts'
-            ].join(', '),
+        // For other containers, only hide if we can confirm they're Shorts
+        const generalContainers = [
+            'ytm-video-with-context-renderer',
+            'ytm-compact-video-renderer'
+        ];
 
-            filterChips: [
-                'ytm-chip-cloud-chip-renderer'
-            ].join(', ')
-        };
+        generalContainers.forEach(selector => {
+            document.querySelectorAll(selector).forEach(item => {
+                // Only hide if this is definitely a Shorts item
+                if (isDefiniteShortsElement(item)) {
+                    item.style.display = 'none';
+                    console.log('Hidden confirmed Shorts item:', item.tagName);
+                }
+            });
+        });
     } else {
-        selectors = {
-            videoItems: [
-                'ytd-rich-item-renderer',
-                'ytd-video-renderer',
-                'ytd-grid-video-renderer',
-                'ytd-reel-item-renderer',
-                'ytd-search ytd-video-renderer',
-                'ytd-item-section-renderer',
-                'ytd-shelf-renderer',
-                'ytd-horizontal-card-list-renderer'
-            ].join(', '),
+        // Desktop selectors
+        const desktopSelectors = [
+            'ytd-reel-item-renderer',
+            'ytd-rich-item-renderer',
+            'ytd-video-renderer',
+            'ytd-grid-video-renderer'
+        ];
 
-            shortsSection: [
-                'ytd-rich-section-renderer',
-                'ytd-reel-shelf-renderer',
-                'ytd-shorts-shelf-renderer'
-            ].join(', '),
-
-            navMenu: [
-                'ytd-guide-entry-renderer a[title="Shorts"]'
-            ].join(', '),
-
-            filterChips: [
-                'ytd-feed-filter-chip-bar-renderer yt-chip-cloud-chip-renderer'
-            ].join(', ')
-        };
+        desktopSelectors.forEach(selector => {
+            document.querySelectorAll(selector).forEach(item => {
+                if (isShortsElement(item)) {
+                    item.style.display = 'none';
+                }
+            });
+        });
     }
-
-    // Cache the selectors
-    selectorCache[cacheKey] = selectors;
-    return selectors;
 }
 
-// Determine if an element is a Shorts element
-function isShortsElement(element) {
+// More strict Shorts detection to avoid hiding search results
+function isDefiniteShortsElement(element) {
     try {
-        // Quick check for guaranteed shorts elements
+        // Skip if this is in search results
+        if (isInSearchResults(element)) {
+            return false;
+        }
+
+        // Definitive Shorts elements
         if (element.tagName === 'YTD-REEL-ITEM-RENDERER' ||
             element.tagName === 'YTM-REEL-ITEM-RENDERER') {
             return true;
         }
 
-        // Check for shorts in the URL or title
-        if (element.querySelector('a[href*="/shorts/"]') ||
-            element.querySelector('[title="Shorts"]')) {
-            return true;
-        }
-
-        // Check for #shorts text
-        if (element.textContent &&
-            (element.textContent.includes('#shorts') ||
-                element.textContent.includes(' shorts'))) {
-            return true;
-        }
-
-        // Desktop-specific checks
-        if (!isMobileYouTube) {
-            if (element.querySelector('[data-short-type]') ||
-                (element.tagName === 'YTD-ITEM-SECTION-RENDERER' &&
-                    element.querySelector('span')?.textContent.includes('Shorts'))) {
+        // Check for Shorts URL in links - but be more specific
+        const shortsLink = element.querySelector('a[href*="/shorts/"]');
+        if (shortsLink) {
+            // Additional verification - make sure this isn't just a regular video in search
+            const parentContainer = element.closest('ytm-reel-shelf-renderer, ytm-rich-section-renderer');
+            if (parentContainer || element.tagName.includes('REEL')) {
                 return true;
             }
+
+            // Check if container has Shorts-specific attributes
+            if (element.hasAttribute('data-content-type') &&
+                element.getAttribute('data-content-type') === 'shorts') {
+                return true;
+            }
+
+            // For mobile, check if it's in a Shorts shelf context
+            if (isMobileYouTube) {
+                const shortsContext = element.closest('[data-content-type="shorts"]');
+                if (shortsContext) {
+                    return true;
+                }
+            }
+        }
+
+        // Check for definitive Shorts indicators only
+        const definiteShortsIndicator = element.querySelector('[data-shorts="true"]') ||
+            element.querySelector('.reel-item') ||
+            element.hasAttribute('data-shorts');
+
+        if (definiteShortsIndicator) {
+            return true;
         }
 
         return false;
     } catch (e) {
-        console.error('Error checking for shorts element:', e);
+        console.error('Error in isDefiniteShortsElement:', e);
+        return false;
+    }
+}
+
+// Hide Shorts navigation elements
+function hideShortsNavigation() {
+    const navSelectors = isMobileYouTube ? [
+        '.pivot-shorts'
+    ] : [
+        'ytd-guide-entry-renderer a[title="Shorts"]',
+        'ytd-mini-guide-entry-renderer a[title="Shorts"]'
+    ];
+
+    navSelectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(item => {
+            const parentItem = isMobileYouTube ? item : item.closest('ytd-guide-entry-renderer, ytd-mini-guide-entry-renderer');
+            if (parentItem) {
+                parentItem.style.display = 'none';
+            }
+        });
+    });
+}
+
+// Keep the original isShortsElement function for desktop compatibility
+function isShortsElement(element) {
+    try {
+        // For mobile, use the more strict detection
+        if (isMobileYouTube) {
+            return isDefiniteShortsElement(element);
+        }
+
+        // Desktop logic (unchanged)
+        if (element.tagName === 'YTD-REEL-ITEM-RENDERER' ||
+            element.tagName === 'YTM-REEL-ITEM-RENDERER') {
+            return true;
+        }
+
+        const shortsLink = element.querySelector('a[href*="/shorts/"]');
+        if (shortsLink) {
+            return true;
+        }
+
+        const shortsIndicator = element.querySelector('[aria-label*="Shorts"]') ||
+            element.querySelector('[title*="Shorts"]') ||
+            element.querySelector('.shorts-badge') ||
+            element.querySelector('[data-shorts]') ||
+            element.querySelector('.reel-item') ||
+            element.querySelector('[data-content-type="shorts"]');
+        if (shortsIndicator) {
+            return true;
+        }
+
+        const textContent = element.textContent || '';
+        if (textContent.includes('#shorts') ||
+            textContent.includes('#Shorts') ||
+            textContent.includes('YouTube Shorts')) {
+            return true;
+        }
+
+        const parentShelf = element.closest('ytd-reel-shelf-renderer, ytd-shorts-shelf-renderer');
+        if (parentShelf) {
+            return true;
+        }
+
+        return false;
+    } catch (e) {
+        console.error('Error in isShortsElement:', e);
         return false;
     }
 }
 
 // Hide "Shorts" filter chips in search results
 function hideShortFilterChips() {
-    const selectors = getSelectors();
-    const filterChips = document.querySelectorAll(selectors.filterChips);
+    const chipSelectors = isMobileYouTube ? [
+        'ytm-chip-cloud-chip-renderer'
+    ] : [
+        'ytd-feed-filter-chip-bar-renderer yt-chip-cloud-chip-renderer',
+        'yt-chip-cloud-chip-renderer'
+    ];
 
-    filterChips.forEach(chip => {
-        const chipText = chip.textContent.trim().toLowerCase();
-        const chipLabel = chip.getAttribute('aria-label')?.toLowerCase() || '';
+    chipSelectors.forEach(selector => {
+        document.querySelectorAll(selector).forEach(chip => {
+            const chipText = chip.textContent.trim().toLowerCase();
+            const chipLabel = chip.getAttribute('aria-label')?.toLowerCase() || '';
 
-        if (chipText === 'shorts' || chipLabel.includes('shorts')) {
-            chip.style.display = 'none';
-        }
+            if (chipText === 'shorts' || chipLabel.includes('shorts')) {
+                chip.style.display = 'none';
+            }
+        });
     });
 }
 
@@ -382,35 +556,16 @@ function redirectShortsUrls() {
 // Function to show shorts again
 function showShorts() {
     try {
-        // Get all potentially hidden elements
-        const selectors = getSelectors();
-
-        // Show video items
-        document.querySelectorAll(selectors.videoItems).forEach(element => {
-            element.style.display = '';
-        });
-
-        // Show shorts sections
-        document.querySelectorAll(selectors.shortsSection).forEach(section => {
-            section.style.display = '';
-        });
-
-        // Show nav menu items for shorts
-        const navItems = document.querySelectorAll(selectors.navMenu);
-        navItems.forEach(item => {
-            const parentItem = isMobileYouTube ? item : item.closest('ytd-guide-entry-renderer');
-            if (parentItem) {
-                parentItem.style.display = '';
+        // Show all previously hidden elements by removing inline display styles
+        const allHiddenElements = document.querySelectorAll('[style*="display: none"]');
+        allHiddenElements.forEach(element => {
+            // Only restore elements that were likely hidden by our extension
+            if (element.tagName.includes('YT') || element.classList.contains('shorts-blocker-status')) {
+                element.style.display = '';
             }
         });
 
-        // Show filter chips
-        const filterChips = document.querySelectorAll(selectors.filterChips);
-        filterChips.forEach(chip => {
-            chip.style.display = '';
-        });
-
-        // Remove any notices we might have added
+        // Remove any notices we might have added (except status message)
         document.querySelectorAll('.youtube-shorts-blocked-notice:not(.shorts-blocker-status)').forEach(notice => {
             notice.remove();
         });

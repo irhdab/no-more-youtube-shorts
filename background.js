@@ -91,8 +91,8 @@ function updateIcon(isBlocking) {
                 48: "icons/icon48.png"
             } :
             {
-                16: "icons/icon16-disabled.png",
-                48: "icons/icon48-disabled.png"
+                16: "icons/icon16.png",
+                48: "icons/icon48.png"
             };
 
         chrome.action.setIcon({ path: iconPath });

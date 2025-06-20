@@ -23,65 +23,10 @@ function detectEnvironment() {
         window.innerWidth <= 768;
 
     console.log(`Environment detected: Firefox=${isFirefox}, Android=${isAndroid}, Mobile YouTube=${isMobileYouTube}`);
-    console.log(`User Agent: ${navigator.userAgent}`);
-    console.log(`Window width: ${window.innerWidth}`);
-    console.log(`Hostname: ${window.location.hostname}`);
 }
 
 // Run detection
 detectEnvironment();
-
-// Add a message to the page
-function addStatusMessage() {
-    if (isAndroid && isFirefox) {
-        if (document.querySelector('.shorts-blocker-status')) return;
-
-        const messageDiv = document.createElement('div');
-        messageDiv.className = 'shorts-blocker-status youtube-shorts-blocked-notice';
-        messageDiv.innerHTML = `
-            <p>YouTube Shorts Blocker is ${isBlocking ? 'active' : 'inactive'}</p>
-            <button id="toggleBlocker">Toggle Blocker</button>
-        `;
-        messageDiv.style.position = 'fixed';
-        messageDiv.style.bottom = '10px';
-        messageDiv.style.right = '10px';
-        messageDiv.style.zIndex = '9999';
-        messageDiv.style.width = 'auto';
-
-        document.body.appendChild(messageDiv);
-
-        // Add click handler
-        document.getElementById('toggleBlocker').addEventListener('click', function () {
-            isBlocking = !isBlocking;
-            chrome.storage.local.set({ 'blockShorts': isBlocking });
-
-            if (isBlocking) {
-                hideShorts();
-            } else {
-                showShorts();
-            }
-
-            // Update status text
-            messageDiv.querySelector('p').textContent = `YouTube Shorts Blocker is ${isBlocking ? 'active' : 'inactive'}`;
-        });
-
-        // Auto-hide after 5 seconds
-        setTimeout(() => {
-            if (messageDiv.parentNode) {
-                messageDiv.style.opacity = '0.3';
-            }
-        }, 5000);
-
-        // Show on hover
-        messageDiv.addEventListener('mouseenter', () => {
-            messageDiv.style.opacity = '1';
-        });
-
-        messageDiv.addEventListener('mouseleave', () => {
-            messageDiv.style.opacity = '0.3';
-        });
-    }
-}
 
 // Check saved state
 function checkInitialState() {
@@ -99,11 +44,6 @@ function checkInitialState() {
         if (isBlocking) {
             hideShorts();
         }
-
-        // Add status message if on Firefox Android
-        if (isAndroid && isFirefox && document.body) {
-            addStatusMessage();
-        }
     });
 }
 
@@ -119,12 +59,6 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
             hideShorts();
         } else {
             showShorts();
-        }
-
-        // Update status message if it exists
-        const statusMsg = document.querySelector('.shorts-blocker-status p');
-        if (statusMsg) {
-            statusMsg.textContent = `YouTube Shorts Blocker is ${isBlocking ? 'active' : 'inactive'}`;
         }
 
         sendResponse({ success: true });
@@ -182,11 +116,6 @@ setTimeout(() => {
             childList: true,
             subtree: true
         });
-
-        // Add status message for Firefox Android
-        if (isAndroid && isFirefox) {
-            addStatusMessage();
-        }
     }
 }, 1000);
 
@@ -215,7 +144,7 @@ function hideShorts() {
         // Handle Shorts URL redirects
         redirectShortsUrls();
 
-        // Use improved mobile approach instead of brute force
+        // Use improved mobile approach for Firefox Android (without toggle box)
         if (isAndroid && isFirefox) {
             hideMobileShortsImproved();
         }
@@ -560,44 +489,16 @@ function showShorts() {
         const allHiddenElements = document.querySelectorAll('[style*="display: none"]');
         allHiddenElements.forEach(element => {
             // Only restore elements that were likely hidden by our extension
-            if (element.tagName.includes('YT') || element.classList.contains('shorts-blocker-status')) {
+            if (element.tagName.includes('YT')) {
                 element.style.display = '';
             }
         });
 
-        // Remove any notices we might have added (except status message)
-        document.querySelectorAll('.youtube-shorts-blocked-notice:not(.shorts-blocker-status)').forEach(notice => {
+        // Remove any notices we might have added
+        document.querySelectorAll('.youtube-shorts-blocked-notice').forEach(notice => {
             notice.remove();
         });
     } catch (e) {
         console.error('Error showing shorts:', e);
     }
-}
-
-// Add a direct control method for Firefox Android
-if (isAndroid && isFirefox) {
-    window.addEventListener('load', function () {
-        // Add keyboard shortcut for Android Firefox
-        document.addEventListener('keydown', function (e) {
-            // Use Alt+S as a shortcut to toggle
-            if (e.altKey && e.key === 's') {
-                isBlocking = !isBlocking;
-                chrome.storage.local.set({ 'blockShorts': isBlocking });
-
-                if (isBlocking) {
-                    hideShorts();
-                } else {
-                    showShorts();
-                }
-
-                // Show temporary status
-                const existingMsg = document.querySelector('.shorts-blocker-status');
-                if (existingMsg) {
-                    existingMsg.querySelector('p').textContent = `YouTube Shorts Blocker is ${isBlocking ? 'active' : 'inactive'}`;
-                    existingMsg.style.opacity = '1';
-                    setTimeout(() => { existingMsg.style.opacity = '0.3'; }, 3000);
-                }
-            }
-        });
-    });
 }

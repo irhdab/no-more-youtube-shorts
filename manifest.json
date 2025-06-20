@@ -1,7 +1,7 @@
 {
     "manifest_version": 3,
     "name": "No Shorts - YouTube Shorts Blocker",
-    "version": "2.12",
+    "version": "3.1",
     "description": "Block YouTube Shorts from feeds, search results, and homepage with a dark glassmorphism UI toggle",
     "permissions": [
         "activeTab",

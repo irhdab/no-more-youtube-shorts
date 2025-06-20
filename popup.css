@@ -32,6 +32,11 @@ h1 {
     position: relative;
 }
 
+/* Hide toggle container for Firefox Android */
+.firefox-android .toggle-container {
+    display: none !important;
+}
+
 .toggle-label {
     margin-left: 15px;
     font-size: 16px;
@@ -118,6 +123,23 @@ input:checked+.slider:before {
     line-height: 1.3;
 }
 
+/* Special styling for Firefox Android message */
+.firefox-android-message {
+    background: rgba(140, 67, 255, 0.1);
+    border: 1px solid rgba(140, 67, 255, 0.3);
+    border-radius: 8px;
+    padding: 12px;
+    margin-top: 10px;
+    text-align: center;
+}
+
+.firefox-android-message p {
+    margin: 0;
+    color: #8c43ff;
+    font-weight: bold;
+    font-size: 14px;
+}
+
 /* Firefox-specific styling */
 @-moz-document url-prefix() {
     body {
@@ -176,5 +198,9 @@ body.mobile {
 
     .mobile-message {
         font-size: 12px;
+    }
+
+    .firefox-android-message p {
+        font-size: 13px;
     }
 }

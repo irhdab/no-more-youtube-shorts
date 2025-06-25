@@ -1,50 +1,56 @@
-// Background script for better mobile compatibility
+/**
+ * Background Script for YouTube Shorts Blocker
+ * Handles extension lifecycle and cross-tab communication
+ */
 
+import { ConfigService } from './services/config-service.js';
+import { setBlockingState, getBlockingState, initializeSettings } from './utils/storage.js';
+import { detectEnvironment } from './utils/environment.js';
+
+// Initialize services
+const configService = new ConfigService();
 let isInitialized = false;
 
-// Initialize settings if not already set
-function initializeSettings() {
+/**
+ * Initialize the background script
+ */
+async function initializeBackground() {
     if (isInitialized) return;
 
-    chrome.storage.local.get('blockShorts', function (data) {
-        if (chrome.runtime.lastError) {
-            console.error('Storage error during init:', chrome.runtime.lastError);
-            return;
-        }
-
-        if (data.blockShorts === undefined) {
-            // Default to enabled if never set before
-            chrome.storage.local.set({ 'blockShorts': true }, function () {
-                if (chrome.runtime.lastError) {
-                    console.error('Error setting default:', chrome.runtime.lastError);
-                } else {
-                    console.log('Default settings initialized');
-                }
-            });
-        }
+    try {
+        // Initialize environment detection
+        detectEnvironment();
+        
+        // Initialize configuration
+        await configService.initialize();
+        
+        // Initialize storage settings
+        await initializeSettings();
+        
         isInitialized = true;
-    });
+        console.log('Background script initialized successfully');
+    } catch (error) {
+        console.error('Error initializing background script:', error);
+    }
 }
 
-// Run initialization
-initializeSettings();
-
-// Handle messages from content script or popup
-chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
+/**
+ * Handle messages from content script or popup
+ */
+chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     console.log('Background received message:', request);
 
     // Get current status
     if (request.action === 'getStatus') {
-        chrome.storage.local.get('blockShorts', function (data) {
-            if (chrome.runtime.lastError) {
-                console.error('Error getting status:', chrome.runtime.lastError);
-                sendResponse({ isBlocking: true, error: chrome.runtime.lastError });
-                return;
-            }
-            const isBlocking = data.blockShorts !== undefined ? !!data.blockShorts : true;
-            console.log('Sending status:', isBlocking);
-            sendResponse({ isBlocking: isBlocking });
-        });
+        getBlockingState()
+            .then(isBlocking => {
+                console.log('Sending status:', isBlocking);
+                sendResponse({ isBlocking });
+            })
+            .catch(error => {
+                console.error('Error getting status:', error);
+                sendResponse({ isBlocking: true, error: error.message });
+            });
         return true; // Required for async response
     }
 
@@ -53,32 +59,36 @@ chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {
         const isBlocking = request.isBlocking;
         console.log('Background processing toggle:', isBlocking);
 
-        // Save setting
-        chrome.storage.local.set({ 'blockShorts': isBlocking }, function () {
-            if (chrome.runtime.lastError) {
-                console.error('Error saving toggle state:', chrome.runtime.lastError);
-                sendResponse({ success: false, error: chrome.runtime.lastError });
-                return;
-            }
-
-            console.log('Toggle state saved successfully');
-
-            // Update icon
-            updateIcon(isBlocking);
-
-            // Notify all YouTube tabs
-            notifyAllYouTubeTabs(isBlocking);
-
-            sendResponse({ success: true });
-        });
+        setBlockingState(isBlocking)
+            .then(() => {
+                console.log('Toggle state saved successfully');
+                
+                // Update configuration
+                configService.set('blockShorts', isBlocking);
+                
+                // Update icon
+                updateIcon(isBlocking);
+                
+                // Notify all YouTube tabs
+                notifyAllYouTubeTabs(isBlocking);
+                
+                sendResponse({ success: true });
+            })
+            .catch(error => {
+                console.error('Error saving toggle state:', error);
+                sendResponse({ success: false, error: error.message });
+            });
 
         return true; // Required for async response
     }
 });
 
-// Function to notify all YouTube tabs
+/**
+ * Notify all YouTube tabs of state changes
+ * @param {boolean} isBlocking - New blocking state
+ */
 function notifyAllYouTubeTabs(isBlocking) {
-    chrome.tabs.query({ url: ['*://*.youtube.com/*', '*://*.m.youtube.com/*'] }, function (tabs) {
+    chrome.tabs.query({ url: ['*://*.youtube.com/*', '*://*.m.youtube.com/*'] }, (tabs) => {
         if (chrome.runtime.lastError) {
             console.error('Error querying tabs:', chrome.runtime.lastError);
             return;
@@ -90,7 +100,7 @@ function notifyAllYouTubeTabs(isBlocking) {
             chrome.tabs.sendMessage(tab.id, {
                 action: 'toggleShorts',
                 isBlocking: isBlocking
-            }, function (response) {
+            }, (response) => {
                 if (chrome.runtime.lastError) {
                     // This is normal for tabs that haven't loaded the content script yet
                     console.log(`Could not message tab ${tab.id}:`, chrome.runtime.lastError.message);
@@ -102,9 +112,11 @@ function notifyAllYouTubeTabs(isBlocking) {
     });
 }
 
-// Handle browser action clicks (for mobile where popups might not work well)
+/**
+ * Handle browser action clicks (for mobile where popups might not work well)
+ */
 if (chrome.action && chrome.action.onClicked) {
-    chrome.action.onClicked.addListener(function (tab) {
+    chrome.action.onClicked.addListener((tab) => {
         console.log('Extension icon clicked on tab:', tab.url);
 
         // Only act on YouTube tabs
@@ -114,23 +126,14 @@ if (chrome.action && chrome.action.onClicked) {
         }
 
         // Toggle the setting
-        chrome.storage.local.get('blockShorts', function (data) {
-            if (chrome.runtime.lastError) {
-                console.error('Error getting state for icon click:', chrome.runtime.lastError);
-                return;
-            }
+        getBlockingState()
+            .then(currentState => {
+                const newState = !currentState;
+                console.log('Icon click toggle:', currentState, '->', newState);
 
-            const currentState = data.blockShorts !== undefined ? !!data.blockShorts : true;
-            const newState = !currentState;
-
-            console.log('Icon click toggle:', currentState, '->', newState);
-
-            chrome.storage.local.set({ 'blockShorts': newState }, function () {
-                if (chrome.runtime.lastError) {
-                    console.error('Error saving icon click state:', chrome.runtime.lastError);
-                    return;
-                }
-
+                return setBlockingState(newState);
+            })
+            .then(() => {
                 // Update icon
                 updateIcon(newState);
 
@@ -138,7 +141,7 @@ if (chrome.action && chrome.action.onClicked) {
                 chrome.tabs.sendMessage(tab.id, {
                     action: 'toggleShorts',
                     isBlocking: newState
-                }, function (response) {
+                }, (response) => {
                     if (chrome.runtime.lastError) {
                         console.error('Error messaging tab from icon click:', chrome.runtime.lastError);
                     } else {
@@ -148,12 +151,17 @@ if (chrome.action && chrome.action.onClicked) {
 
                 // Also notify other YouTube tabs
                 notifyAllYouTubeTabs(newState);
+            })
+            .catch(error => {
+                console.error('Error handling icon click:', error);
             });
-        });
     });
 }
 
-// Update the browser action icon based on state
+/**
+ * Update the browser action icon based on state
+ * @param {boolean} isBlocking - Current blocking state
+ */
 function updateIcon(isBlocking) {
     if (!chrome.action || !chrome.action.setIcon) {
         console.log('Icon update not supported');
@@ -168,7 +176,7 @@ function updateIcon(isBlocking) {
             128: "icons/icon128.png"
         };
 
-        chrome.action.setIcon({ path: iconPath }, function () {
+        chrome.action.setIcon({ path: iconPath }, () => {
             if (chrome.runtime.lastError) {
                 console.error('Error setting icon:', chrome.runtime.lastError);
             }
@@ -177,7 +185,7 @@ function updateIcon(isBlocking) {
         // Set badge to show status
         chrome.action.setBadgeText({
             text: isBlocking ? 'ON' : 'OFF'
-        }, function () {
+        }, () => {
             if (chrome.runtime.lastError) {
                 console.error('Error setting badge:', chrome.runtime.lastError);
             }
@@ -185,7 +193,7 @@ function updateIcon(isBlocking) {
 
         chrome.action.setBadgeBackgroundColor({
             color: isBlocking ? '#4CAF50' : '#F44336'
-        }, function () {
+        }, () => {
             if (chrome.runtime.lastError) {
                 console.error('Error setting badge color:', chrome.runtime.lastError);
             }
@@ -196,21 +204,18 @@ function updateIcon(isBlocking) {
     }
 }
 
-// Set initial icon state when extension loads
-chrome.storage.local.get('blockShorts', function (data) {
-    if (chrome.runtime.lastError) {
-        console.error('Error getting initial state for icon:', chrome.runtime.lastError);
-        return;
-    }
-    const isBlocking = data.blockShorts !== undefined ? !!data.blockShorts : true;
-    updateIcon(isBlocking);
-});
+/**
+ * Set initial icon state when extension loads
+ */
+getBlockingState()
+    .then(isBlocking => {
+        updateIcon(isBlocking);
+    })
+    .catch(error => {
+        console.error('Error setting initial icon state:', error);
+        // Default to enabled state
+        updateIcon(true);
+    });
 
-// Listen for storage changes to keep icon in sync
-chrome.storage.onChanged.addListener(function (changes, namespace) {
-    if (namespace === 'local' && changes.blockShorts) {
-        const newValue = changes.blockShorts.newValue;
-        updateIcon(!!newValue);
-        console.log('Storage changed, updated icon:', newValue);
-    }
-});
+// Initialize background script
+initializeBackground();
